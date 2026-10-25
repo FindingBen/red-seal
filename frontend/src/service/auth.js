@@ -1,3 +1,5 @@
+import { tokenService } from './token/tokenService.js'
+
 const API_URL = import.meta.env.VITE_API_URL
 
 export async function login(email, password) {
@@ -14,6 +16,12 @@ export async function login(email, password) {
   if (!response.ok) {
     throw new Error(data.detail || 'Login failed')
   }
+
+  if (!data.access) {
+    throw new Error('Login response did not include an access token.')
+  }
+
+  tokenService.setTokens({ access: data.access, refresh: data.refresh })
 
   return data
 }

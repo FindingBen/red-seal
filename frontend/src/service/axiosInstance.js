@@ -1,9 +1,10 @@
 import axios from "axios";
 import dayjs from "dayjs";
 import { jwtDecode } from "jwt-decode";
-import { tokenService } from "../token/tokenService";
+import { tokenService } from "../service/token/tokenService";
 
-const API_URL = import.meta.env.VITE_API_URL;
+const API_URL = import.meta.env.VITE_API_URL; //http://localhost:8000
+
 
 // Create ONE instance
 const axiosInstance = axios.create({

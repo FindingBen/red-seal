@@ -1,14 +1,19 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import ScheduleClassModal from '../modal/ScheduleClassModal.jsx'
+import { getClasses } from '../service/class_api.js'
+import { createSchedule } from '../service/schedule_api.js'
 
 const STORAGE_KEY = 'lessonly-booked-lessons'
 const AVAILABLE_TIMES = ['09:00', '10:30', '13:00', '14:30']
-const TIME_SLOTS = Array.from({ length: 20 }, (_, index) => {
-  const hour = 8 + Math.floor(index / 2)
-  const minute = index % 2 === 0 ? '00' : '30'
+const TIME_SLOTS = Array.from({ length: 40 }, (_, index) => {
+  const hour = 8 + Math.floor(index / 4)
+  const minute = String((index % 4) * 15).padStart(2, '0')
   return `${String(hour).padStart(2, '0')}:${minute}`
 })
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-const SLOT_HEIGHT = 36
+const SLOT_HEIGHT = 18
+const GRID_START_MINUTES = 8 * 60
+const GRID_END_MINUTES = 18 * 60
 
 function getDateKey(date) {
   const year = date.getFullYear()
@@ -42,7 +47,36 @@ function getInitialBookings() {
 
 function getSlotIndex(time) {
   const [hour, minute] = time.split(':').map(Number)
-  return (hour - 8) * 2 + minute / 30
+  return (hour - 8) * 4 + minute / 15
+}
+
+function parseDurationMinutes(duration) {
+  if (typeof duration !== 'string') return 60
+
+  const isoDuration = duration.match(/^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?$/)
+  if (isoDuration) {
+    return Number(isoDuration[1] || 0) * 1440
+      + Number(isoDuration[2] || 0) * 60
+      + Number(isoDuration[3] || 0)
+      + Number(isoDuration[4] || 0) / 60
+  }
+
+  const djangoDuration = duration.match(/^(?:(\d+)\s+days?,?\s*)?(\d+):(\d{2}):(\d{2})(?:\.\d+)?$/)
+  if (djangoDuration) {
+    return Number(djangoDuration[1] || 0) * 1440
+      + Number(djangoDuration[2]) * 60
+      + Number(djangoDuration[3])
+      + Number(djangoDuration[4]) / 60
+  }
+
+  return 60
+}
+
+function normalizeClasses(response) {
+  if (Array.isArray(response)) return response
+  if (Array.isArray(response?.results)) return response.results
+  if (Array.isArray(response?.classes)) return response.classes
+  return []
 }
 
 function formatTime(time) {
@@ -62,16 +96,53 @@ function isInPast(date, time, now) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate(), hour, minute) <= now
 }
 
+function getScheduleErrorMessage(error) {
+  const responseData = error.response?.data
+  let message = responseData?.detail || responseData?.message
+
+  if (!message && typeof responseData === 'string') {
+    message = responseData
+  } else if (!message && responseData && typeof responseData === 'object') {
+    message = Object.entries(responseData)
+      .map(([field, value]) => `${field}: ${Array.isArray(value) ? value.join(', ') : typeof value === 'string' ? value : JSON.stringify(value)}`)
+      .join(' ')
+  }
+
+  const status = error.response?.status
+  return `${status ? `${status}: ` : ''}${message || error.message || 'Could not schedule this class.'}`
+}
+
 function LessonsTimetable() {
   const [bookings, setBookings] = useState(getInitialBookings)
+  const [classes, setClasses] = useState([])
+  const [classesError, setClassesError] = useState('')
   const [weekStart, setWeekStart] = useState(() => getStartOfWeek(new Date()))
   const [selectedDate, setSelectedDate] = useState(() => new Date())
   const [selectedTime, setSelectedTime] = useState('')
   const [confirmation, setConfirmation] = useState('')
+  const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false)
+  const [isScheduling, setIsScheduling] = useState(false)
+  const [scheduleError, setScheduleError] = useState('')
   const now = new Date()
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
   const weekDays = getWeekDays(weekStart)
   const selectedDateKey = getDateKey(selectedDate)
+
+  useEffect(() => {
+    let isActive = true
+
+    getClasses()
+      .then((response) => {
+        if (isActive) setClasses(normalizeClasses(response))
+      })
+      .catch((error) => {
+        if (isActive) setClassesError(getScheduleErrorMessage(error))
+      })
+
+    return () => {
+      isActive = false
+    }
+  }, [])
 
   function changeWeek(offset) {
     const nextWeek = new Date(weekStart)
@@ -122,6 +193,27 @@ function LessonsTimetable() {
     }
   }
 
+  async function scheduleClass(data) {
+    setScheduleError('')
+    setIsScheduling(true)
+
+    try {
+      await createSchedule(data)
+      setIsScheduleModalOpen(false)
+      setConfirmation('Class scheduled successfully.')
+      try {
+        setClasses(normalizeClasses(await getClasses()))
+        setClassesError('')
+      } catch (error) {
+        setClassesError(getScheduleErrorMessage(error))
+      }
+    } catch (error) {
+      setScheduleError(getScheduleErrorMessage(error))
+    } finally {
+      setIsScheduling(false)
+    }
+  }
+
   const weekLabel = `${formatDate(weekDays[0], { month: 'long', day: 'numeric' })} – ${formatDate(weekDays[6], { month: 'long', day: 'numeric', year: 'numeric' })}`
 
   return (
@@ -130,9 +222,18 @@ function LessonsTimetable() {
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#5c5c99]">Plan your next class</p>
           <h1 className="mt-2 font-serif text-4xl font-semibold text-[#292966]">Lessons</h1>
-          <p className="mt-3 max-w-2xl text-base leading-7 text-[#77779f]">Choose an open time to book a one-hour class with your teacher.</p>
+          <p className="mt-3 max-w-2xl text-base leading-7 text-[#77779f]">View scheduled classes alongside teacher availability.</p>
         </div>
-        <span className="rounded-md border border-[#dadaed] bg-white px-3 py-2 text-xs font-semibold text-[#5c5c99]">Sample teacher availability</span>
+        <button
+          type="button"
+          onClick={() => {
+            setScheduleError('')
+            setIsScheduleModalOpen(true)
+          }}
+          className="rounded-md bg-[#292966] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#5c5c99] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#5c5c99]"
+        >
+          Schedule class
+        </button>
       </div>
 
       <div className="overflow-hidden rounded-lg border border-[#e4e4f5] bg-white shadow-sm">
@@ -193,7 +294,7 @@ function LessonsTimetable() {
               <div className="sticky left-0 z-10 grid border-r border-[#e4e4f5] bg-white" style={{ gridTemplateRows: `repeat(${TIME_SLOTS.length}, ${SLOT_HEIGHT}px)` }}>
                 {TIME_SLOTS.map((time, index) => (
                   <div key={time} className="relative border-b border-[#eeeeF8] pr-2 text-right text-[11px] text-[#a3a3cc]">
-                    {index % 2 === 0 && <span className="absolute right-2 top-0 -translate-y-1/2 bg-white px-0.5">{formatTime(time)}</span>}
+                    {index % 4 === 0 && <span className="absolute right-2 top-0 -translate-y-1/2 bg-white px-0.5">{formatTime(time)}</span>}
                   </div>
                 ))}
               </div>
@@ -203,6 +304,10 @@ function LessonsTimetable() {
                 const isWeekday = date.getDay() !== 0 && date.getDay() !== 6
                 const isSelectedDay = dateKey === selectedDateKey
                 const dayBookings = bookings.filter((booking) => booking.date === dateKey)
+                const dayClasses = classes.filter((classItem) => {
+                  const scheduledDate = new Date(classItem.scheduled_date)
+                  return !Number.isNaN(scheduledDate.getTime()) && getDateKey(scheduledDate) === dateKey
+                })
 
                 return (
                   <div
@@ -219,6 +324,14 @@ function LessonsTimetable() {
                       const booking = dayBookings.find((item) => item.time === time)
                       const isPast = isInPast(date, time, now)
                       const isSelectedSlot = isSelectedDay && selectedTime === time
+                      const [hour, minute] = time.split(':').map(Number)
+                      const slotStart = new Date(date.getFullYear(), date.getMonth(), date.getDate(), hour, minute)
+                      const slotEnd = new Date(slotStart.getTime() + 60 * 60000)
+                      const overlapsClass = dayClasses.some((classItem) => {
+                        const classStart = new Date(classItem.scheduled_date)
+                        const classEnd = new Date(classStart.getTime() + parseDurationMinutes(classItem.duration) * 60000)
+                        return slotStart < classEnd && slotEnd > classStart
+                      })
                       const row = getSlotIndex(time) + 1
 
                       return (
@@ -229,15 +342,45 @@ function LessonsTimetable() {
                             event.stopPropagation()
                             if (!booking && !isPast) selectTime(date, time)
                           }}
-                          disabled={Boolean(booking) || isPast}
-                          aria-label={`${formatTime(time)}, ${booking ? 'class booked' : isPast ? 'time unavailable' : 'available for one hour'}`}
+                          disabled={Boolean(booking) || isPast || overlapsClass}
+                          aria-label={`${formatTime(time)}, ${booking ? 'class booked' : overlapsClass ? 'class already scheduled' : isPast ? 'time unavailable' : 'available for one hour'}`}
                           aria-pressed={isSelectedSlot}
-                          className={`z-10 m-1 flex min-h-0 flex-col items-start justify-center overflow-hidden rounded-md border px-2 text-left text-[11px] leading-4 transition focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#5c5c99] ${booking ? 'cursor-not-allowed border-[#dadaed] bg-[#eeeeff] text-[#5c5c99]' : isPast ? 'cursor-not-allowed border-transparent bg-[#f7f7fb] text-[#c9c9dc]' : isSelectedSlot ? 'border-[#292966] bg-[#292966] text-white shadow-sm' : 'border-[#dadaed] bg-[#f7f7ff] text-[#5c5c99] hover:border-[#5c5c99] hover:bg-[#eeeeff]'}`}
-                          style={{ gridRow: `${row} / span 2` }}
+                          className={`z-10 m-1 flex min-h-0 flex-col items-start justify-center overflow-hidden rounded-md border px-2 text-left text-[11px] leading-4 transition focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#5c5c99] ${booking ? 'cursor-not-allowed border-[#dadaed] bg-[#eeeeff] text-[#5c5c99]' : isPast || overlapsClass ? 'cursor-not-allowed border-transparent bg-[#f7f7fb] text-[#c9c9dc]' : isSelectedSlot ? 'border-[#292966] bg-[#292966] text-white shadow-sm' : 'border-[#dadaed] bg-[#f7f7ff] text-[#5c5c99] hover:border-[#5c5c99] hover:bg-[#eeeeff]'}`}
+                          style={{ gridRow: `${row} / span 4` }}
                         >
                           <span className="font-bold">{booking ? 'Class booked' : isPast ? 'Unavailable' : 'Available'}</span>
                           <span>{formatTime(time)} – {formatTime(TIME_SLOTS[getSlotIndex(time) + 2])}</span>
                         </button>
+                      )
+                    })}
+
+                    {dayClasses.map((classItem) => {
+                      const classStart = new Date(classItem.scheduled_date)
+                      const startMinutes = classStart.getHours() * 60 + classStart.getMinutes()
+                      const durationMinutes = parseDurationMinutes(classItem.duration)
+                      const visibleStart = Math.max(startMinutes, GRID_START_MINUTES)
+                      const visibleEnd = Math.min(startMinutes + durationMinutes, GRID_END_MINUTES)
+                      if (visibleEnd <= visibleStart) return null
+
+                      const top = ((visibleStart - GRID_START_MINUTES) / 15) * SLOT_HEIGHT
+                      const height = ((visibleEnd - visibleStart) / 15) * SLOT_HEIGHT
+                      const endTime = new Date(classStart.getTime() + durationMinutes * 60000)
+                      const classKey = classItem.class_id || `${classItem.scheduled_date}-${classItem.class_name}`
+
+                      return (
+                        <div
+                          key={classKey}
+                          title={`${classItem.class_name || 'Scheduled class'}: ${formatTime(`${String(classStart.getHours()).padStart(2, '0')}:${String(classStart.getMinutes()).padStart(2, '0')}`)} – ${formatTime(`${String(endTime.getHours()).padStart(2, '0')}:${String(endTime.getMinutes()).padStart(2, '0')}`)}`}
+                          className="pointer-events-none absolute left-1 right-1 z-20 overflow-hidden rounded-md border border-[#8bb9a7] bg-[#eef6f3] px-1.5 py-0.5 text-[10px] leading-3 text-[#245343]"
+                          style={{ top, height }}
+                        >
+                          <span className="block truncate font-bold">{classItem.class_name || 'Scheduled class'}</span>
+                          {height >= 30 && (
+                            <span className="block truncate">
+                              {formatTime(`${String(classStart.getHours()).padStart(2, '0')}:${String(classStart.getMinutes()).padStart(2, '0')}`)} – {formatTime(`${String(endTime.getHours()).padStart(2, '0')}:${String(endTime.getMinutes()).padStart(2, '0')}`)}
+                            </span>
+                          )}
+                        </div>
                       )
                     })}
                   </div>
@@ -269,7 +412,16 @@ function LessonsTimetable() {
           </button>
         </div>
       </div>
-      <p className="mt-4 text-xs leading-5 text-[#a3a3cc]">Availability shown is sample data. Bookings are saved on this device until connected to your scheduling API.</p>
+      {classesError && <p role="alert" className="mt-4 text-sm text-red-700">Could not load scheduled classes: {classesError}</p>}
+      <p className="mt-4 text-xs leading-5 text-[#a3a3cc]">Availability shown is sample data.</p>
+      {isScheduleModalOpen && (
+        <ScheduleClassModal
+          error={scheduleError}
+          isSubmitting={isScheduling}
+          onClose={() => setIsScheduleModalOpen(false)}
+          onSchedule={scheduleClass}
+        />
+      )}
     </section>
   )
 }
