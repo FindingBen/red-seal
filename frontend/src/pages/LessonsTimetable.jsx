@@ -1,135 +1,66 @@
 import { useEffect, useState } from 'react'
+import AvailabilityModal from '../components/AvailabilityModal.jsx'
 import ScheduleClassModal from '../modal/ScheduleClassModal.jsx'
+import { getMe } from '../service/account_api.js'
 import { getClasses } from '../service/class_api.js'
-import { createSchedule } from '../service/schedule_api.js'
-
-const STORAGE_KEY = 'lessonly-booked-lessons'
-const AVAILABLE_TIMES = ['09:00', '10:30', '13:00', '14:30']
-const TIME_SLOTS = Array.from({ length: 40 }, (_, index) => {
-  const hour = 8 + Math.floor(index / 4)
-  const minute = String((index % 4) * 15).padStart(2, '0')
-  return `${String(hour).padStart(2, '0')}:${minute}`
-})
-const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-const SLOT_HEIGHT = 18
-const GRID_START_MINUTES = 8 * 60
-const GRID_END_MINUTES = 18 * 60
-
-function getDateKey(date) {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-
-function getStartOfWeek(date) {
-  const monday = new Date(date.getFullYear(), date.getMonth(), date.getDate())
-  monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7))
-  return monday
-}
-
-function getWeekDays(weekStart) {
-  return WEEKDAYS.map((_, index) => {
-    const date = new Date(weekStart)
-    date.setDate(date.getDate() + index)
-    return date
-  })
-}
-
-function getInitialBookings() {
-  try {
-    const savedBookings = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]')
-    return Array.isArray(savedBookings) ? savedBookings : []
-  } catch {
-    return []
-  }
-}
-
-function getSlotIndex(time) {
-  const [hour, minute] = time.split(':').map(Number)
-  return (hour - 8) * 4 + minute / 15
-}
-
-function parseDurationMinutes(duration) {
-  if (typeof duration !== 'string') return 60
-
-  const isoDuration = duration.match(/^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?$/)
-  if (isoDuration) {
-    return Number(isoDuration[1] || 0) * 1440
-      + Number(isoDuration[2] || 0) * 60
-      + Number(isoDuration[3] || 0)
-      + Number(isoDuration[4] || 0) / 60
-  }
-
-  const djangoDuration = duration.match(/^(?:(\d+)\s+days?,?\s*)?(\d+):(\d{2}):(\d{2})(?:\.\d+)?$/)
-  if (djangoDuration) {
-    return Number(djangoDuration[1] || 0) * 1440
-      + Number(djangoDuration[2]) * 60
-      + Number(djangoDuration[3])
-      + Number(djangoDuration[4]) / 60
-  }
-
-  return 60
-}
-
-function normalizeClasses(response) {
-  if (Array.isArray(response)) return response
-  if (Array.isArray(response?.results)) return response.results
-  if (Array.isArray(response?.classes)) return response.classes
-  return []
-}
-
-function formatTime(time) {
-  const [hour, minute] = time.split(':').map(Number)
-  return new Date(2000, 0, 1, hour, minute).toLocaleTimeString(undefined, {
-    hour: 'numeric',
-    minute: '2-digit',
-  })
-}
-
-function formatDate(date, options) {
-  return date.toLocaleDateString(undefined, options)
-}
-
-function isInPast(date, time, now) {
-  const [hour, minute] = time.split(':').map(Number)
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), hour, minute) <= now
-}
-
-function getScheduleErrorMessage(error) {
-  const responseData = error.response?.data
-  let message = responseData?.detail || responseData?.message
-
-  if (!message && typeof responseData === 'string') {
-    message = responseData
-  } else if (!message && responseData && typeof responseData === 'object') {
-    message = Object.entries(responseData)
-      .map(([field, value]) => `${field}: ${Array.isArray(value) ? value.join(', ') : typeof value === 'string' ? value : JSON.stringify(value)}`)
-      .join(' ')
-  }
-
-  const status = error.response?.status
-  return `${status ? `${status}: ` : ''}${message || error.message || 'Could not schedule this class.'}`
-}
+import { createSchedule, createAvailability, getAvailability, getBookedSessions } from '../service/schedule_api.js'
+import { tokenService } from '../service/token/tokenService.js'
+import {
+  formatDate,
+  formatTime,
+  getDateKey,
+  getScheduleErrorMessage,
+  getStartOfWeek,
+  getWeekDays,
+  GRID_END_MINUTES,
+  GRID_START_MINUTES,
+  normalizeAvailability,
+  normalizeBookedSessions,
+  normalizeClasses,
+  parseDurationMinutes,
+  SLOT_HEIGHT,
+  TIME_SLOTS,
+  WEEKDAYS,
+} from '../dateFunctionality/dateFunctionality.js'
 
 function LessonsTimetable() {
-  const [bookings, setBookings] = useState(getInitialBookings)
   const [classes, setClasses] = useState([])
   const [classesError, setClassesError] = useState('')
+  const [bookedSessions, setBookedSessions] = useState([])
+  const [bookedSessionsError, setBookedSessionsError] = useState('')
+  const [currentAccountId, setCurrentAccountId] = useState(null)
+  const [accountError, setAccountError] = useState('')
+  const [isLoadingAccount, setIsLoadingAccount] = useState(true)
+  const [availability, setAvailability] = useState([])
+  const [availabilityLoadError, setAvailabilityLoadError] = useState('')
   const [weekStart, setWeekStart] = useState(() => getStartOfWeek(new Date()))
   const [selectedDate, setSelectedDate] = useState(() => new Date())
-  const [selectedTime, setSelectedTime] = useState('')
   const [confirmation, setConfirmation] = useState('')
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false)
   const [isScheduling, setIsScheduling] = useState(false)
   const [scheduleError, setScheduleError] = useState('')
-  const now = new Date()
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const [isAvailabilityModalOpen, setIsAvailabilityModalOpen] = useState(false)
+  const [isCreatingAvailability, setIsCreatingAvailability] = useState(false)
+  const [availabilityError, setAvailabilityError] = useState('')
   const weekDays = getWeekDays(weekStart)
   const selectedDateKey = getDateKey(selectedDate)
 
+  const user = tokenService.getUser()
+  const isTutor = user?.user_type === 'tutor'
+
   useEffect(() => {
     let isActive = true
+
+    getMe()
+      .then((account) => {
+        if (isActive) setCurrentAccountId(account.id)
+      })
+      .catch((error) => {
+        if (isActive) setAccountError(getScheduleErrorMessage(error))
+      })
+      .finally(() => {
+        if (isActive) setIsLoadingAccount(false)
+      })
 
     getClasses()
       .then((response) => {
@@ -137,6 +68,28 @@ function LessonsTimetable() {
       })
       .catch((error) => {
         if (isActive) setClassesError(getScheduleErrorMessage(error))
+      })
+
+    getAvailability()
+      .then((response) => {
+        if (isActive) {
+          setAvailability(normalizeAvailability(response))
+          setAvailabilityLoadError('')
+        }
+      })
+      .catch((error) => {
+        if (isActive) setAvailabilityLoadError(getScheduleErrorMessage(error))
+      })
+
+    getBookedSessions()
+      .then((response) => {
+        if (isActive) {
+          setBookedSessions(normalizeBookedSessions(response))
+          setBookedSessionsError('')
+        }
+      })
+      .catch((error) => {
+        if (isActive) setBookedSessionsError(getScheduleErrorMessage(error))
       })
 
     return () => {
@@ -149,7 +102,6 @@ function LessonsTimetable() {
     nextWeek.setDate(nextWeek.getDate() + offset * 7)
     setWeekStart(nextWeek)
     setSelectedDate(nextWeek)
-    setSelectedTime('')
     setConfirmation('')
   }
 
@@ -157,40 +109,12 @@ function LessonsTimetable() {
     const currentDate = new Date()
     setWeekStart(getStartOfWeek(currentDate))
     setSelectedDate(currentDate)
-    setSelectedTime('')
     setConfirmation('')
   }
 
   function selectDate(date) {
     setSelectedDate(date)
-    setSelectedTime('')
     setConfirmation('')
-  }
-
-  function selectTime(date, time) {
-    setSelectedDate(date)
-    setSelectedTime(time)
-    setConfirmation('')
-  }
-
-  function bookLesson() {
-    if (!selectedTime) return
-
-    const booking = {
-      id: `${selectedDateKey}-${selectedTime}`,
-      date: selectedDateKey,
-      time: selectedTime,
-    }
-    const nextBookings = [...bookings, booking]
-    setBookings(nextBookings)
-    setSelectedTime('')
-    setConfirmation(`Class booked for ${formatDate(selectedDate, { month: 'long', day: 'numeric' })} at ${formatTime(booking.time)}.`)
-
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(nextBookings))
-    } catch {
-      setConfirmation('Class booked for this session, but could not be saved on this device.')
-    }
   }
 
   async function scheduleClass(data) {
@@ -198,7 +122,7 @@ function LessonsTimetable() {
     setIsScheduling(true)
 
     try {
-      await createSchedule(data)
+      await createSchedule({ ...data, account_id: user?.account_id })
       setIsScheduleModalOpen(false)
       setConfirmation('Class scheduled successfully.')
       try {
@@ -207,10 +131,56 @@ function LessonsTimetable() {
       } catch (error) {
         setClassesError(getScheduleErrorMessage(error))
       }
+      try {
+        setBookedSessions(normalizeBookedSessions(await getBookedSessions()))
+        setBookedSessionsError('')
+      } catch (error) {
+        setBookedSessionsError(getScheduleErrorMessage(error))
+      }
     } catch (error) {
       setScheduleError(getScheduleErrorMessage(error))
     } finally {
       setIsScheduling(false)
+    }
+  }
+
+  async function saveAvailability({ dates, startTime, duration, scheduleName, isAvailable }) {
+    setAvailabilityError('')
+    setIsCreatingAvailability(true)
+
+    const failedDates = []
+
+    try {
+      for (const date of dates) {
+        try {
+          await createAvailability({
+            schedule_name: scheduleName.trim(),
+            activity_type: isAvailable ? 'available' : 'unavailable',
+            date_of: new Date(`${date}T${startTime}`).toISOString(),
+            duration,
+          })
+        } catch (error) {
+          failedDates.push({ date, message: getScheduleErrorMessage(error) })
+        }
+      }
+
+      const savedCount = dates.length - failedDates.length
+      if (savedCount > 0) {
+        const status = isAvailable ? 'available' : 'unavailable'
+        setConfirmation(`${savedCount} ${status} date${savedCount === 1 ? '' : 's'} saved.`)
+        try {
+          setAvailability(normalizeAvailability(await getAvailability()))
+          setAvailabilityLoadError('')
+        } catch (error) {
+          setAvailabilityLoadError(getScheduleErrorMessage(error))
+        }
+      }
+      if (failedDates.length > 0) {
+        setAvailabilityError(failedDates.map(({ date, message }) => `${date}: ${message}`).join(' '))
+      }
+      return failedDates
+    } finally {
+      setIsCreatingAvailability(false)
     }
   }
 
@@ -224,16 +194,29 @@ function LessonsTimetable() {
           <h1 className="mt-2 font-serif text-4xl font-semibold text-[#292966]">Lessons</h1>
           <p className="mt-3 max-w-2xl text-base leading-7 text-[#77779f]">View scheduled classes alongside teacher availability.</p>
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            setScheduleError('')
-            setIsScheduleModalOpen(true)
-          }}
-          className="rounded-md bg-[#292966] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#5c5c99] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#5c5c99]"
-        >
-          Schedule class
-        </button>
+        {isTutor ? (
+          <button
+            type="button"
+            onClick={() => {
+              setAvailabilityError('')
+              setIsAvailabilityModalOpen(true)
+            }}
+            className="rounded-md bg-[#292966] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#5c5c99] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#5c5c99]"
+          >
+            Create availability
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              setScheduleError('')
+              setIsScheduleModalOpen(true)
+            }}
+            className="rounded-md bg-[#292966] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#5c5c99] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#5c5c99]"
+          >
+            Schedule class
+          </button>
+        )}
       </div>
 
       <div className="overflow-hidden rounded-lg border border-[#e4e4f5] bg-white shadow-sm">
@@ -271,7 +254,6 @@ function LessonsTimetable() {
             <div className="grid grid-cols-[68px_repeat(7,minmax(112px,1fr))] border-b border-[#e4e4f5] bg-white">
               <div className="sticky left-0 z-20 flex items-end justify-center border-r border-[#e4e4f5] bg-white pb-3 text-[10px] font-semibold uppercase tracking-wide text-[#a3a3cc]">Time</div>
               {weekDays.map((date, index) => {
-                const isToday = getDateKey(date) === getDateKey(today)
                 const isSelected = getDateKey(date) === selectedDateKey
                 return (
                   <button
@@ -282,7 +264,7 @@ function LessonsTimetable() {
                     className={`flex min-h-[68px] flex-col items-center justify-center border-r border-[#eeeeF8] text-sm transition last:border-r-0 focus-visible:z-20 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#5c5c99] ${isSelected ? 'bg-[#f1f1ff] text-[#292966]' : 'text-[#77779f] hover:bg-[#fafaff]'}`}
                   >
                     <span className="text-xs font-medium uppercase tracking-wide">{WEEKDAYS[index]}</span>
-                    <span className={`mt-1 flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold ${isToday ? 'bg-[#292966] text-white' : isSelected ? 'text-[#292966]' : 'text-[#5c5c99]'}`}>
+                    <span className={`mt-1 flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold ${isSelected ? 'text-[#292966]' : 'text-[#5c5c99]'}`}>
                       {date.getDate()}
                     </span>
                   </button>
@@ -301,12 +283,20 @@ function LessonsTimetable() {
 
               {weekDays.map((date) => {
                 const dateKey = getDateKey(date)
-                const isWeekday = date.getDay() !== 0 && date.getDay() !== 6
                 const isSelectedDay = dateKey === selectedDateKey
-                const dayBookings = bookings.filter((booking) => booking.date === dateKey)
                 const dayClasses = classes.filter((classItem) => {
                   const scheduledDate = new Date(classItem.scheduled_date)
                   return !Number.isNaN(scheduledDate.getTime()) && getDateKey(scheduledDate) === dateKey
+                })
+                const dayBookedSessions = bookedSessions.filter((session) => {
+                  const bookedDate = new Date(session.scheduled_date || session.date_of)
+                  return !Number.isNaN(bookedDate.getTime())
+                    && getDateKey(bookedDate) === dateKey
+                })
+                const dayAvailability = availability.filter((item) => {
+                  if (item.activity_type !== 'available' && item.activity_type !== 'unavailable') return false
+                  const date = new Date(item.date_of)
+                  return !Number.isNaN(date.getTime()) && getDateKey(date) === dateKey
                 })
 
                 return (
@@ -320,37 +310,73 @@ function LessonsTimetable() {
                       <div key={time} className="border-b border-[#eeeeF8]" style={{ gridRow: index + 1 }} />
                     ))}
 
-                    {isWeekday && AVAILABLE_TIMES.map((time) => {
-                      const booking = dayBookings.find((item) => item.time === time)
-                      const isPast = isInPast(date, time, now)
-                      const isSelectedSlot = isSelectedDay && selectedTime === time
-                      const [hour, minute] = time.split(':').map(Number)
-                      const slotStart = new Date(date.getFullYear(), date.getMonth(), date.getDate(), hour, minute)
-                      const slotEnd = new Date(slotStart.getTime() + 60 * 60000)
-                      const overlapsClass = dayClasses.some((classItem) => {
-                        const classStart = new Date(classItem.scheduled_date)
-                        const classEnd = new Date(classStart.getTime() + parseDurationMinutes(classItem.duration) * 60000)
-                        return slotStart < classEnd && slotEnd > classStart
-                      })
-                      const row = getSlotIndex(time) + 1
+                    {dayAvailability.map((item) => {
+                      const availabilityStart = new Date(item.date_of)
+                      const startMinutes = availabilityStart.getHours() * 60 + availabilityStart.getMinutes()
+                      const durationMinutes = parseDurationMinutes(item.duration)
+                      const visibleStart = Math.max(startMinutes, GRID_START_MINUTES)
+                      const visibleEnd = Math.min(startMinutes + durationMinutes, GRID_END_MINUTES)
+                      if (visibleEnd <= visibleStart) return null
+
+                      const top = ((visibleStart - GRID_START_MINUTES) / 15) * SLOT_HEIGHT
+                      const height = ((visibleEnd - visibleStart) / 15) * SLOT_HEIGHT
+                      const endTime = new Date(availabilityStart.getTime() + durationMinutes * 60000)
+                      const isUnavailable = item.activity_type === 'unavailable'
+                      const scheduleName = item.schedule_name || (isUnavailable ? 'Unavailable' : 'Tutor available')
+                      const key = item.schedule_id || item.id || item.availability_id || `${item.date_of}-${scheduleName}`
 
                       return (
-                        <button
-                          key={time}
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            if (!booking && !isPast) selectTime(date, time)
-                          }}
-                          disabled={Boolean(booking) || isPast || overlapsClass}
-                          aria-label={`${formatTime(time)}, ${booking ? 'class booked' : overlapsClass ? 'class already scheduled' : isPast ? 'time unavailable' : 'available for one hour'}`}
-                          aria-pressed={isSelectedSlot}
-                          className={`z-10 m-1 flex min-h-0 flex-col items-start justify-center overflow-hidden rounded-md border px-2 text-left text-[11px] leading-4 transition focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#5c5c99] ${booking ? 'cursor-not-allowed border-[#dadaed] bg-[#eeeeff] text-[#5c5c99]' : isPast || overlapsClass ? 'cursor-not-allowed border-transparent bg-[#f7f7fb] text-[#c9c9dc]' : isSelectedSlot ? 'border-[#292966] bg-[#292966] text-white shadow-sm' : 'border-[#dadaed] bg-[#f7f7ff] text-[#5c5c99] hover:border-[#5c5c99] hover:bg-[#eeeeff]'}`}
-                          style={{ gridRow: `${row} / span 4` }}
+                        <div
+                          key={key}
+                          title={`${scheduleName}: ${formatTime(`${String(availabilityStart.getHours()).padStart(2, '0')}:${String(availabilityStart.getMinutes()).padStart(2, '0')}`)} – ${formatTime(`${String(endTime.getHours()).padStart(2, '0')}:${String(endTime.getMinutes()).padStart(2, '0')}`)}`}
+                          className={`pointer-events-none absolute left-1 right-1 z-10 overflow-hidden rounded-md border px-1.5 py-0.5 text-[10px] leading-3 ${isUnavailable ? 'border-[#dca4a4] bg-[#fbefef] text-[#803d3d]' : 'border-[#91a8d8] bg-[#eef2fb] text-[#344a78]'}`}
+                          style={{ top, height }}
                         >
-                          <span className="font-bold">{booking ? 'Class booked' : isPast ? 'Unavailable' : 'Available'}</span>
-                          <span>{formatTime(time)} – {formatTime(TIME_SLOTS[getSlotIndex(time) + 2])}</span>
-                        </button>
+                          <span className="block truncate font-bold">{scheduleName}</span>
+                          {height >= 30 && (
+                            <span className="block truncate">
+                              {formatTime(`${String(availabilityStart.getHours()).padStart(2, '0')}:${String(availabilityStart.getMinutes()).padStart(2, '0')}`)} – {formatTime(`${String(endTime.getHours()).padStart(2, '0')}:${String(endTime.getMinutes()).padStart(2, '0')}`)}
+                            </span>
+                          )}
+                        </div>
+                      )
+                    })}
+
+                    {dayBookedSessions.map((session) => {
+                      const bookedStart = new Date(session.scheduled_date || session.date_of)
+                      const startMinutes = bookedStart.getHours() * 60 + bookedStart.getMinutes()
+                      const durationMinutes = parseDurationMinutes(session.duration)
+                      const visibleStart = Math.max(startMinutes, GRID_START_MINUTES)
+                      const visibleEnd = Math.min(startMinutes + durationMinutes, GRID_END_MINUTES)
+                      if (visibleEnd <= visibleStart) return null
+
+                      const top = ((visibleStart - GRID_START_MINUTES) / 15) * SLOT_HEIGHT
+                      const height = ((visibleEnd - visibleStart) / 15) * SLOT_HEIGHT
+                      const endTime = new Date(bookedStart.getTime() + durationMinutes * 60000)
+                      const sessionKey = session.session_id || session.booking_id || session.id || `${bookedStart.toISOString()}-${session.duration}`
+                      const startLabel = `${String(bookedStart.getHours()).padStart(2, '0')}:${String(bookedStart.getMinutes()).padStart(2, '0')}`
+                      const endLabel = `${String(endTime.getHours()).padStart(2, '0')}:${String(endTime.getMinutes()).padStart(2, '0')}`
+                      const isOwnBooking = session.student_account_id === currentAccountId
+                      const bookingLabel = isOwnBooking ? 'Your booking' : 'Booked'
+                      const bookingColor = isLoadingAccount
+                        ? 'border-[#dadaed] bg-[#f7f7ff] text-[#5c5c99]'
+                        : isOwnBooking
+                          ? 'border-[#8bb9a7] bg-[#eef6f3] text-[#245343]'
+                          : 'border-[#dca4a4] bg-[#fbefef] text-[#803d3d]'
+
+                      return (
+                        <div
+                          key={sessionKey}
+                          title={`${bookingLabel}: ${formatTime(startLabel)} – ${formatTime(endLabel)}`}
+                          aria-label={`${bookingLabel}, ${formatTime(startLabel)} to ${formatTime(endLabel)}`}
+                          className={`pointer-events-none absolute left-1 right-1 z-30 overflow-hidden rounded-md border px-1.5 py-0.5 text-[10px] leading-3 ${bookingColor}`}
+                          style={{ top, height }}
+                        >
+                          <span className="block truncate font-bold">{bookingLabel}</span>
+                          {height >= 30 && (
+                            <span className="block truncate">{formatTime(startLabel)} – {formatTime(endLabel)}</span>
+                          )}
+                        </div>
                       )
                     })}
 
@@ -390,36 +416,30 @@ function LessonsTimetable() {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-4 border-t border-[#e4e4f5] bg-[#fcfcff] px-4 py-4 sm:px-6">
-          <div className="min-h-10" aria-live="polite">
-            {confirmation ? (
-              <p role="status" className="text-sm font-medium text-[#292966]">{confirmation}</p>
-            ) : selectedTime ? (
-              <p className="text-sm text-[#5c5c99]">
-                Selected: <span className="font-semibold text-[#292966]">{formatDate(selectedDate, { weekday: 'long', month: 'long', day: 'numeric' })} at {formatTime(selectedTime)}</span>
-              </p>
-            ) : (
-              <p className="text-sm text-[#a3a3cc]">Select an available one-hour time to book a class.</p>
-            )}
+        {confirmation && (
+          <div className="border-t border-[#e4e4f5] bg-[#fcfcff] px-4 py-4 sm:px-6" aria-live="polite">
+            <p role="status" className="text-sm font-medium text-[#292966]">{confirmation}</p>
           </div>
-          <button
-            type="button"
-            onClick={bookLesson}
-            disabled={!selectedTime}
-            className="rounded-md bg-[#292966] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#5c5c99] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#5c5c99] disabled:cursor-not-allowed disabled:bg-[#dadaed]"
-          >
-            Book class
-          </button>
-        </div>
+        )}
       </div>
       {classesError && <p role="alert" className="mt-4 text-sm text-red-700">Could not load scheduled classes: {classesError}</p>}
-      <p className="mt-4 text-xs leading-5 text-[#a3a3cc]">Availability shown is sample data.</p>
+      {bookedSessionsError && <p role="alert" className="mt-4 text-sm text-red-700">Could not load booked sessions: {bookedSessionsError}</p>}
+      {accountError && <p role="alert" className="mt-4 text-sm text-red-700">Could not identify your bookings: {accountError}</p>}
+      {availabilityLoadError && <p role="alert" className="mt-4 text-sm text-red-700">Could not load tutor availability: {availabilityLoadError}</p>}
       {isScheduleModalOpen && (
         <ScheduleClassModal
           error={scheduleError}
           isSubmitting={isScheduling}
           onClose={() => setIsScheduleModalOpen(false)}
           onSchedule={scheduleClass}
+        />
+      )}
+      {isAvailabilityModalOpen && (
+        <AvailabilityModal
+          error={availabilityError}
+          isSubmitting={isCreatingAvailability}
+          onClose={() => setIsAvailabilityModalOpen(false)}
+          onCreate={saveAvailability}
         />
       )}
     </section>

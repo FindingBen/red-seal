@@ -1,24 +1,50 @@
 import { useState } from 'react'
 import { login } from '../service/auth.js'
+import { tokenService } from '../service/token/tokenService.js'
+import { useNavigate, Link } from 'react-router-dom'
 
-function LoginPage({ onLoginSuccess }) {
+function LoginPage() {
+  const navigate = useNavigate()
+  
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [success, setSuccess] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  async function handleSubmit(event) {
-    event.preventDefault()
+   const handleSubmit = async (e) => {
+    e.preventDefault()
     setError('')
-    setIsSubmitting(true)
+    setSuccess('')
+    setLoading(true)
 
     try {
-      await login(email.trim(), password)
-      onLoginSuccess()
-    } catch (loginError) {
-      setError(loginError.message || 'We could not sign you in. Please try again.')
+      const data = await login(email, password)
+
+      // Store tokens using tokenService
+      if (data.access && data.refresh) {
+        tokenService.setTokens({
+          access: data.access,
+          refresh: data.refresh,
+        })
+      }
+
+      setSuccess('Login successful! Redirecting...')
+      setEmail('')
+      setPassword('')
+
+      // Redirect to dashboard after a short delay
+      setTimeout(() => {
+        navigate('/dashboard')
+      }, 500)
+
+      console.log('Login successful:', data)
+    } catch (err) {
+      setError(err.message || 'Login failed. Please check your credentials.')
+      console.error('Login error:', err)
     } finally {
-      setIsSubmitting(false)
+      setLoading(false)
     }
   }
 

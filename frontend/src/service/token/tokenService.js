@@ -9,9 +9,15 @@ export const tokenService = {
     return localStorage.getItem("refreshToken");
   },
 
-  setTokens({ access, refresh }) {
+  getUser() {
+    const user = localStorage.getItem("user");
+    return user ? JSON.parse(user) : null;
+  },
+
+  setTokens({ access, refresh, user }) {
     if (access) localStorage.setItem("accessToken", access);
     if (refresh) localStorage.setItem("refreshToken", refresh);
+    if (user !== undefined) localStorage.setItem("user", JSON.stringify(user));
   },
 
   clear() {

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { getTutors } from '../service/account_api.js'
 
 function getLocalDateTime(date) {
   const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000)
@@ -14,32 +15,77 @@ function getInitialDateTime() {
 function formatDuration(minutes) {
   const hours = Math.floor(minutes / 60)
   const remainingMinutes = minutes % 60
-  return `PT${hours ? `${hours}H` : ''}${remainingMinutes ? `${remainingMinutes}M` : ''}`
+  return `${String(hours).padStart(2, '0')}:${String(remainingMinutes).padStart(2, '0')}:00`
+}
+
+function getTutorOptions(response) {
+  const responseTutors = Array.isArray(response)
+    ? response
+    : response?.results || response?.tutors || response?.accounts || []
+  const tutors = Array.isArray(responseTutors) ? responseTutors : []
+  const uniqueTutors = new Map()
+
+  for (const tutor of tutors) {
+    const id = tutor.account_id || tutor.id || tutor.tutor_id
+    if (!id || uniqueTutors.has(id)) continue
+
+    const name = tutor.full_name
+      || tutor.name
+      || [tutor.first_name, tutor.last_name].filter(Boolean).join(' ')
+      || tutor.email
+      || id
+
+    uniqueTutors.set(id, { id, name })
+  }
+
+  return Array.from(uniqueTutors.values())
 }
 
 function ScheduleClassModal({ error, isSubmitting, onClose, onSchedule }) {
   const dialogRef = useRef(null)
   const dateInputRef = useRef(null)
+  const tutorInputRef = useRef(null)
+  const [tutors, setTutors] = useState([])
+  const [tutorsError, setTutorsError] = useState('')
+  const [isLoadingTutors, setIsLoadingTutors] = useState(true)
+  const [selectedTutor, setSelectedTutor] = useState('')
   const [dateOf, setDateOf] = useState(getInitialDateTime)
   const [duration, setDuration] = useState('60')
   const [comments, setComments] = useState('')
   const minimumDateTime = getLocalDateTime(new Date())
 
   useEffect(() => {
+    let isActive = true
     const dialog = dialogRef.current
     dialog?.showModal()
+
+    getTutors()
+      .then((response) => {
+        if (!isActive) return
+        const tutorOptions = getTutorOptions(response)
+        setTutors(tutorOptions)
+        if (tutorOptions.length === 0) setTutorsError('No tutors are available to select.')
+      })
+      .catch((fetchError) => {
+        if (isActive) setTutorsError(fetchError.message || 'Could not load tutors.')
+      })
+      .finally(() => {
+        if (isActive) setIsLoadingTutors(false)
+      })
+
     return () => {
+      isActive = false
       if (dialog?.open) dialog.close()
     }
   }, [])
 
   function handleSchedule() {
-    if (!dateInputRef.current?.reportValidity()) return
+    if (!tutorInputRef.current?.reportValidity() || !dateInputRef.current?.reportValidity()) return
 
     onSchedule({
+      tutor: selectedTutor,
       date_of: new Date(dateOf).toISOString(),
       duration: formatDuration(Number(duration)),
-      status: 'scheduled',
       comments: comments.trim(),
     })
   }
@@ -63,6 +109,25 @@ function ScheduleClassModal({ error, isSubmitting, onClose, onSchedule }) {
         </div>
 
         <div className="space-y-5 px-6 py-6">
+          <div>
+            <label htmlFor="class-tutor" className="mb-2 block text-sm font-semibold">Tutor</label>
+            <select
+              ref={tutorInputRef}
+              id="class-tutor"
+              required
+              value={selectedTutor}
+              onChange={(event) => setSelectedTutor(event.target.value)}
+              disabled={isLoadingTutors || tutors.length === 0}
+              className="w-full rounded-md border border-[#dadaed] bg-white px-3 py-2.5 text-sm outline-none focus:border-[#5c5c99] focus:ring-2 focus:ring-[#ccccff]/50 disabled:bg-[#f7f7ff]"
+            >
+              <option value="">{isLoadingTutors ? 'Loading tutors...' : 'Select a tutor'}</option>
+              {tutors.map((tutor) => (
+                <option key={tutor.id} value={tutor.id}>{tutor.name}</option>
+              ))}
+            </select>
+            {tutorsError && <p role="alert" className="mt-2 text-sm text-red-700">{tutorsError}</p>}
+          </div>
+
           <div>
             <label htmlFor="class-date" className="mb-2 block text-sm font-semibold">Date and time</label>
             <input
@@ -121,7 +186,7 @@ function ScheduleClassModal({ error, isSubmitting, onClose, onSchedule }) {
           <button
             type="button"
             onClick={handleSchedule}
-            disabled={isSubmitting}
+            disabled={isSubmitting || isLoadingTutors || tutors.length === 0}
             className="rounded-md bg-[#292966] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#5c5c99] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#5c5c99] disabled:cursor-wait disabled:opacity-70"
           >
             {isSubmitting ? 'Scheduling...' : 'Schedule class'}

@@ -21,7 +21,11 @@ export async function login(email, password) {
     throw new Error('Login response did not include an access token.')
   }
 
-  tokenService.setTokens({ access: data.access, refresh: data.refresh })
+  tokenService.setTokens({
+    access: data.access,
+    refresh: data.refresh,
+    user: data.user,
+  })
 
   return data
 }
