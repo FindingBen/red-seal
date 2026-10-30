@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { getMe } from '../service/account_api.js'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { getMe, getWallet } from '../service/account_api.js'
 import { getBookedClasses, getClasses } from '../service/class_api.js'
 import AccountMenu from '../components/AccountMenu.jsx'
+import PaymentResultModal from '../components/PaymentResultModal.jsx'
 import { tokenService } from '../service/token/tokenService.js'
 import { formatTime, getScheduleErrorMessage, normalizeClasses, parseDurationMinutes } from '../dateFunctionality/dateFunctionality.js'
 import Lessons from './LessonsTimetable.jsx'
@@ -32,11 +33,15 @@ function formatClassDuration(duration) {
 
 function Dashboard() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [activePage, setActivePage] = useState('dashboard')
   const [classes, setClasses] = useState([])
   const [classesError, setClassesError] = useState('')
   const [isLoadingClasses, setIsLoadingClasses] = useState(true)
   const [isTutor, setIsTutor] = useState(false)
+  const [availableClasses, setAvailableClasses] = useState(null)
+  const [walletError, setWalletError] = useState('')
+  const [isLoadingWallet, setIsLoadingWallet] = useState(true)
 
   useEffect(() => {
     let isActive = true
@@ -69,9 +74,49 @@ function Dashboard() {
     }
   }, [])
 
+  useEffect(() => {
+    let isActive = true
+
+    async function loadWallet() {
+      try {
+        const wallet = await getWallet()
+        if (wallet?.available === undefined || wallet.available === null || wallet.available === '') {
+          throw new Error('The wallet response is missing the available balance.')
+        }
+
+        const available = Number(wallet?.available)
+        if (!Number.isFinite(available) || available < 0) {
+          throw new Error('The wallet response has an invalid available balance.')
+        }
+
+        if (isActive) setAvailableClasses(available)
+      } catch (error) {
+        if (isActive) {
+          setWalletError(
+            error.response?.data?.detail
+              || error.response?.data?.message
+              || error.message
+              || 'Could not load your class balance.',
+          )
+        }
+      } finally {
+        if (isActive) setIsLoadingWallet(false)
+      }
+    }
+
+    loadWallet()
+    return () => {
+      isActive = false
+    }
+  }, [])
+
   const handleLogout = () => {
     tokenService.clear()
     navigate('/login')
+  }
+
+  const closePaymentResult = () => {
+    navigate(location.pathname, { replace: true, state: null })
   }
 
   return (
@@ -105,6 +150,34 @@ function Dashboard() {
               >
                 Lessons
               </button>
+              <div className="flex items-center gap-1">
+                <Link
+                  to="/payment"
+                  className="rounded-md px-3 py-2 text-sm font-semibold text-[#77779f] transition hover:bg-[#f7f7ff] hover:text-[#292966] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#5c5c99]"
+                >
+                  Buy classes
+                </Link>
+                <span
+                  title={walletError || (availableClasses === null ? undefined : `${availableClasses} classes available for booking`)}
+                  aria-label={walletError
+                    ? `Class balance unavailable: ${walletError}`
+                    : isLoadingWallet
+                      ? 'Loading available class balance'
+                      : `${availableClasses} classes available for booking`}
+                  role={walletError ? 'alert' : undefined}
+                  className={`whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ${
+                    walletError
+                      ? 'bg-red-50 text-red-700'
+                      : 'bg-[#eeeeff] text-[#292966]'
+                  }`}
+                >
+                  {isLoadingWallet
+                    ? 'Loading…'
+                    : walletError
+                      ? 'Balance unavailable'
+                      : `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(availableClasses)} ${availableClasses === 1 ? 'class' : 'classes'}`}
+                </span>
+              </div>
             </nav>
             <span className="hidden h-7 w-px bg-[#e4e4f5] sm:block" aria-hidden="true" />
             <AccountMenu onSignOut={handleLogout} />
@@ -169,6 +242,12 @@ function Dashboard() {
           </section>
           <div className="mt-8 border-t border-[#e4e4f5] pt-6 text-sm text-[#a3a3cc]">Your classroom is ready for what comes next.</div>
         </section>
+      )}
+      {location.state?.paymentResult && (
+        <PaymentResultModal
+          result={{ type: location.state.paymentResult }}
+          onClose={closePaymentResult}
+        />
       )}
     </main>
   )

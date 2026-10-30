@@ -103,7 +103,7 @@ function LoginPage() {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="flex w-full items-center justify-center gap-3 rounded-lg bg-[#292966] px-5 py-3.5 text-base font-semibold text-white transition hover:bg-[#5c5c99] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#5c5c99] disabled:cursor-wait disabled:opacity-70"
+              className="flex w-full items-center justify-center cursor-pointer gap-3 rounded-lg bg-[#292966] px-5 py-3.5 text-base font-semibold text-white transition hover:bg-[#5c5c99] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#5c5c99] disabled:cursor-wait disabled:opacity-70"
             >
               {isSubmitting ? 'Signing in...' : 'Sign in'}
               {!isSubmitting && <span aria-hidden="true">→</span>}

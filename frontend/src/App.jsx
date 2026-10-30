@@ -4,6 +4,8 @@ import Class from './pages/Class.jsx'
 import Dashboard from './pages/Dashboard.jsx'
 import LoginPage from './pages/LoginPage.jsx'
 import LessonsTimetable from './pages/LessonsTimetable.jsx'
+import PaymentPage from './pages/PaymentPage.jsx'
+import PaymentReturnPage from './pages/PaymentReturnPage.jsx'
 import ProtectedRoute from './components/ProtectedRoute.jsx'
 
 
@@ -14,6 +16,38 @@ function App() {
     <BrowserRouter>
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route
+        path="/payment"
+        element={
+          <ProtectedRoute>
+            <PaymentPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/payment/success"
+        element={
+          <ProtectedRoute>
+            <PaymentReturnPage result="success" />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/stripe/purchase_success"
+        element={
+          <ProtectedRoute>
+            <PaymentReturnPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/payment/cancel"
+        element={
+          <ProtectedRoute>
+            <PaymentReturnPage result="cancel" />
+          </ProtectedRoute>
+        }
+      />
       <Route
         path="/class/:classId"
         element={
