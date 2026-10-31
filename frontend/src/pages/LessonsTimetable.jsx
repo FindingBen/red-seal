@@ -328,11 +328,11 @@ function LessonsTimetable() {
                       return (
                         <div
                           key={key}
-                          title={`${scheduleName}: ${formatTime(`${String(availabilityStart.getHours()).padStart(2, '0')}:${String(availabilityStart.getMinutes()).padStart(2, '0')}`)} – ${formatTime(`${String(endTime.getHours()).padStart(2, '0')}:${String(endTime.getMinutes()).padStart(2, '0')}`)}`}
-                          className={`pointer-events-none absolute left-1 right-1 z-10 overflow-hidden rounded-md border px-1.5 py-0.5 text-[10px] leading-3 ${isUnavailable ? 'border-[#dca4a4] bg-[#fbefef] text-[#803d3d]' : 'border-[#91a8d8] bg-[#eef2fb] text-[#344a78]'}`}
+                          title={`${isUnavailable ? 'Unavailable' : 'Available'}: ${scheduleName}: ${formatTime(`${String(availabilityStart.getHours()).padStart(2, '0')}:${String(availabilityStart.getMinutes()).padStart(2, '0')}`)} – ${formatTime(`${String(endTime.getHours()).padStart(2, '0')}:${String(endTime.getMinutes()).padStart(2, '0')}`)}`}
+                          className={`pointer-events-none absolute left-1 right-1 z-10 overflow-hidden rounded-md border px-1.5 py-0.5 text-[10px] leading-3 ${isUnavailable ? 'border-[#b91c1c] bg-[#fecaca] text-[#7f1d1d]' : 'border-[#91a8d8] bg-[#eef2fb] text-[#344a78]'}`}
                           style={{ top, height }}
                         >
-                          <span className="block truncate font-bold">{scheduleName}</span>
+                          <span className="block truncate font-bold">{isUnavailable ? `Unavailable: ${scheduleName}` : scheduleName}</span>
                           {height >= 30 && (
                             <span className="block truncate">
                               {formatTime(`${String(availabilityStart.getHours()).padStart(2, '0')}:${String(availabilityStart.getMinutes()).padStart(2, '0')}`)} – {formatTime(`${String(endTime.getHours()).padStart(2, '0')}:${String(endTime.getMinutes()).padStart(2, '0')}`)}
@@ -414,6 +414,13 @@ function LessonsTimetable() {
               })}
             </div>
           </div>
+        </div>
+
+        <div className="flex flex-wrap gap-x-5 gap-y-2 border-t border-[#e4e4f5] px-4 py-3 text-xs text-[#5c5c99] sm:px-6" aria-label="Calendar legend">
+          <span className="flex items-center gap-2"><span className="h-3 w-3 rounded-sm border border-[#b91c1c] bg-[#fecaca]" aria-hidden="true" />Tutor unavailable</span>
+          <span className="flex items-center gap-2"><span className="h-3 w-3 rounded-sm border border-[#91a8d8] bg-[#eef2fb]" aria-hidden="true" />Tutor available</span>
+          <span className="flex items-center gap-2"><span className="h-3 w-3 rounded-sm border border-[#8bb9a7] bg-[#eef6f3]" aria-hidden="true" />Scheduled class</span>
+          <span className="flex items-center gap-2"><span className="h-3 w-3 rounded-sm border border-[#dca4a4] bg-[#fbefef]" aria-hidden="true" />Booked session</span>
         </div>
 
         {confirmation && (
