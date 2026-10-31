@@ -113,7 +113,7 @@ function Class() {
         <div className="mx-auto flex min-h-18 w-full max-w-6xl items-center px-5 py-3 sm:px-8">
           <Link to="/dashboard" className="inline-flex items-center gap-3 rounded-md text-left focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#5c5c99]">
             <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#292966] text-lg font-semibold text-white">l</span>
-            <span className="text-lg font-semibold tracking-wide text-[#292966]">lessonly</span>
+            <span className="text-lg font-semibold tracking-wide text-[#292966]">Lektion ubq</span>
           </Link>
         </div>
       </header>

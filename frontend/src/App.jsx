@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import Class from './pages/Class.jsx'
 import Dashboard from './pages/Dashboard.jsx'
 import LoginPage from './pages/LoginPage.jsx'
+import RegistrationPage from './pages/RegistrationPage.jsx'
 import LessonsTimetable from './pages/LessonsTimetable.jsx'
 import PaymentPage from './pages/PaymentPage.jsx'
 import PaymentReturnPage from './pages/PaymentReturnPage.jsx'
@@ -16,6 +17,7 @@ function App() {
     <BrowserRouter>
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/register/:token" element={<RegistrationPage />} />
       <Route
         path="/payment"
         element={

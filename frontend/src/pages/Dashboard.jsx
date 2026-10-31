@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { getMe, getStudents, getWallet } from '../service/account_api.js'
 import { getBookedClasses, getClasses } from '../service/class_api.js'
 import AccountMenu from '../components/AccountMenu.jsx'
+import InvitationModal from '../components/InvitationModal.jsx'
 import PaymentResultModal from '../components/PaymentResultModal.jsx'
 import { tokenService } from '../service/token/tokenService.js'
 import { formatTime, getScheduleErrorMessage, normalizeClasses, parseDurationMinutes } from '../dateFunctionality/dateFunctionality.js'
@@ -78,6 +79,7 @@ function Dashboard() {
   const [students, setStudents] = useState([])
   const [studentsError, setStudentsError] = useState('')
   const [isLoadingStudents, setIsLoadingStudents] = useState(true)
+  const [isInvitationModalOpen, setIsInvitationModalOpen] = useState(false)
   const [isTutor, setIsTutor] = useState(false)
   const [availableClasses, setAvailableClasses] = useState(null)
   const [walletError, setWalletError] = useState('')
@@ -202,10 +204,10 @@ function Dashboard() {
             type="button"
             onClick={() => setActivePage('dashboard')}
             className="inline-flex items-center gap-3 rounded-md text-left focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#5c5c99]"
-            aria-label="Lessonly dashboard"
+            aria-label="Lektion ubq dashboard"
           >
             <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#292966] text-lg font-semibold text-white">l</span>
-            <span className="text-lg font-semibold tracking-wide text-[#292966]">lessonly</span>
+            <span className="text-lg font-semibold tracking-wide text-[#292966]">Lektion ubq</span>
           </button>
           <div className="flex items-center gap-3 sm:gap-6">
             <nav className="flex items-center gap-1" aria-label="Main navigation">
@@ -366,9 +368,22 @@ function Dashboard() {
                     <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#5c5c99]">Student List</p>
                     <h2 id="students-heading" className="mt-1 font-serif text-2xl font-semibold text-[#292966]">Students</h2>
                   </div>
-                  {!isLoadingStudents && !studentsError && (
-                    <span className="text-sm text-[#77779f]">{students.length} {students.length === 1 ? 'student' : 'students'}</span>
-                  )}
+                  <div className="flex items-center gap-3">
+                    {!isLoadingStudents && !studentsError && (
+                      <span className="text-sm text-[#77779f]">{students.length} {students.length === 1 ? 'student' : 'students'}</span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setIsInvitationModalOpen(true)}
+                      aria-label="Create student invitation"
+                      title="Invite a student"
+                      className="flex h-9 w-9 items-center justify-center rounded-full border border-[#dadaed] bg-white text-xl font-medium text-[#5c5c99] transition hover:border-[#5c5c99] hover:bg-[#eeeeff] hover:text-[#292966] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#5c5c99]"
+                    >
+                      <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className="h-5 w-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                        <path d="M10 4v12M4 10h12" />
+                      </svg>
+                    </button>
+                  </div>
                 </div>
                 {isLoadingStudents ? (
                   <p className="rounded-lg border border-[#e4e4f5] bg-white px-5 py-6 text-sm text-[#77779f]">Loading students...</p>
@@ -421,6 +436,9 @@ function Dashboard() {
           result={{ type: location.state.paymentResult }}
           onClose={closePaymentResult}
         />
+      )}
+      {isInvitationModalOpen && (
+        <InvitationModal onClose={() => setIsInvitationModalOpen(false)} />
       )}
     </main>
   )

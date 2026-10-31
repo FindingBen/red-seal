@@ -1,10 +1,10 @@
 @import 'tailwindcss';
 
 :root {
-  --lessonly-lavender: #ccccff;
-  --lessonly-muted: #a3a3cc;
-  --lessonly-mid: #5c5c99;
-  --lessonly-ink: #292966;
+  --Lektion ubq-lavender: #ccccff;
+  --Lektion ubq-muted: #a3a3cc;
+  --Lektion ubq-mid: #5c5c99;
+  --Lektion ubq-ink: #292966;
   font-family: 'Segoe UI', Tahoma, sans-serif;
   color: #292966;
   background: #fff;

@@ -52,9 +52,9 @@ function LoginPage() {
     <main className="auth-layout grid min-h-screen">
       <section className="flex items-center justify-center bg-white px-6 py-12 sm:px-10 lg:px-16">
         <div className="auth-content w-full max-w-md">
-          <a href="#" className="mb-14 inline-flex items-center gap-3 no-underline sm:mb-20" aria-label="Lessonly home">
+          <a href="#" className="mb-14 inline-flex items-center gap-3 no-underline sm:mb-20" aria-label="Lektion ubq home">
             <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#292966] text-lg font-semibold text-white">l</span>
-            <span className="text-lg font-semibold tracking-wide text-[#292966]">lessonly</span>
+            <span className="text-lg font-semibold tracking-wide text-[#292966]">Lektion ubq</span>
           </a>
 
           <div className="mb-9">
@@ -111,7 +111,7 @@ function LoginPage() {
           </form>
 
           <p className="mt-8 text-sm leading-6 text-[#77779f]">Having trouble signing in? Reach out to your course administrator.</p>
-          <p className="mt-14 text-xs text-[#a3a3cc]">© 2026 Lessonly Learning</p>
+          <p className="mt-14 text-xs text-[#a3a3cc]">© 2026 Lektion ubq Learning</p>
         </div>
       </section>
 
